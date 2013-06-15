@@ -125,11 +125,16 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 	wc.lpszClassName = "GLSample";
 	RegisterClass( &wc );
 	
+
+	unsigned __int32 windowWidth = 512;
+	unsigned __int32 windowHeight = 512;
+
+
 	// create main window
 	hWnd = CreateWindow( 
 		"GLSample", "OpenGL Sample", 
 		WS_CAPTION | WS_POPUPWINDOW | WS_VISIBLE,
-		0, 0, 256, 256,
+		0, 0, windowWidth, windowHeight,
 		NULL, NULL, hInstance, NULL );
 	
 	// enable OpenGL for the window
@@ -154,20 +159,32 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 								, NULL, NULL, TextureSharingStartedCALLBACK, TextureSharingStoppedCALLBACK
 	 						);
 
-	//WyphonUtils
+	////////////////////////////////////////////////////////////////
+	// THIS APPLICAION WILL SHOW THE FIRST TEXTURE IT GETS FROM ANY 
+	// OTHER WYPHON PARTNER, ROTATING TOGETHER WITH A COLORED TRIANGLE
+	//
+	// IT WILL SHARE ITS OWN SCREEN OUTPUT WITH ALL OTHER WYPHON PARTNERS
+	////////////////////////////////////////////////////////////////
+
+	//Initialize WyphonUtils
 	g_hWyphonUtilsDevice = InitDevice();
 
-	HANDLE dxShareHandle = NULL;
-	GLuint glTextureName = NULL;
-	HANDLE glTextureHandle = NULL;
 
-	PDIRECT3DTEXTURE9 d3d9texture;
-	HRESULT hr = CreateDX9ExTexture( 640, 480, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, & d3d9texture, & dxShareHandle );
+	// this texture is for sharing our screen output with the world
+	HANDLE toWyphon_dxShareHandle = NULL;
+	GLuint toWyphon_glTextureName = NULL;
+	HANDLE toWyphon_glTextureHandle = NULL;
+	PDIRECT3DTEXTURE9 toWyphon_d3d9texture;
+
+	//first create a DX9ex texture
+	HRESULT hr = CreateDX9ExTexture( windowWidth, windowHeight, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, & toWyphon_d3d9texture, & toWyphon_dxShareHandle );
 
 	if ( hr == S_OK  ) {
-		hr = CreateLinkedGLTexture( 640, 480, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, dxShareHandle, glTextureName, glTextureHandle );
+		//then create an OpenGL texture that is pointing to that same DX9ex texture
+		hr = CreateLinkedGLTexture( windowWidth, windowHeight, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, toWyphon_dxShareHandle, toWyphon_glTextureName, toWyphon_glTextureHandle );
 		if ( hr == S_OK ) {
-			ShareD3DTexture( g_hWyphonPartner, dxShareHandle, 640, 480, D3DFMT_A8R8G8B8, D3DUSAGE_RENDERTARGET, TEXT( "screen output" ) );
+			//then use Wyphon to share this texture (don't forget to fill hat texture after each render pass, by copying the screen buffer to it!)
+			ShareD3DTexture( g_hWyphonPartner, toWyphon_dxShareHandle, windowWidth, windowHeight, D3DFMT_A8R8G8B8, D3DUSAGE_RENDERTARGET, TEXT( "screen output" ) );
 		}
 		else {
 			GLuint FramebufferName = 0; //just a line to put a breakpoint on :)
@@ -177,11 +194,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
 	//Check ou http://www.glprogramming.com/red/chapter09.html for OpenGL 1.1 examples and tutorials.
 
-	//GLuint FramebufferName = 0;
-	//glGenFramebuffers(1, &FramebufferName);
-	//glBindFramebuffer(GL_FRAMEBUFFER, FramebufferName);
-
-
+	//this 
 	HANDLE fromWyphon_dxShareHandle = NULL;
 	GLuint fromWyphon_glTextureName = NULL;
 	HANDLE fromWyphon_glTextureHandle = NULL;
@@ -276,8 +289,29 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 			
 				ReleaseMutex( g_hTextureInfoMutex );
 			}
+
+
+			//copy the backbuffer to the texture that this applicaion shares itself
+			///////////////////////////////////////////////////////////////////////
+			glReadBuffer( GL_BACK );
+
+			// lock and bind destination texture
+			glBindTexture( GL_TEXTURE_2D, toWyphon_glTextureName );
+			WyphonUtils::LockGLTexture( toWyphon_glTextureHandle );
+
+			/// copy from framebuffer (here, the FBO!) to the bound texture
+			//glCopyTexImage2D( GL_TEXTURE_2D, 0, 0, 0, 0, windowWidth, windowHeight, 0 );
+			glCopyTexSubImage2D( GL_TEXTURE_2D, 0, 0, 0, 0, 0, windowWidth, windowHeight );
+			glBindTexture( GL_TEXTURE_2D, 0 );
+			// unlock destination texture (but do not unbind it, we need it for drawing)
+			WyphonUtils::UnlockGLTexture( toWyphon_glTextureHandle );
+
+
+
 			SwapBuffers( hDC );
-			
+
+
+
 			theta += 1.0f;
 			
 		}
