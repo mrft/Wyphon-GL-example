@@ -38,8 +38,8 @@ struct TextureInfo {
 
 
 TextureInfo				g_sharedTextureInfo;
-TextureInfo				g_invalidSharedTextureInfo;
-HANDLE					g_hTextureInfoMutex; //to protect the textureInfo
+bool					g_sharedTextureInfoIsInvalid = false;
+//HANDLE					g_hTextureInfoMutex; //to protect the textureInfo
 
 
 // Function Declarations
@@ -53,46 +53,39 @@ void DisableOpenGL(HWND hWnd, HDC hDC, HGLRC hRC);
 
 
 void TextureSharingStartedCALLBACK( HANDLE wyphonPartnerHandle, unsigned __int32 sendingPartnerId, HANDLE sharedTextureHandle, unsigned __int32 width, unsigned __int32 height, DWORD format, DWORD usage, LPTSTR description, void * customData ) {
-	DWORD result = WaitForSingleObject(g_hTextureInfoMutex, 999999 );
+	//DWORD result = WaitForSingleObject(g_hTextureInfoMutex, 999999 );
 	
-	if ( result == WAIT_OBJECT_0 ) {
-		try {
+	//if ( result == WAIT_OBJECT_0 ) {
+	//	try {
 			//if the invalidTextureInfo has not been cleaned up, don't accept new textures
-			if ( g_invalidSharedTextureInfo.hSharedTexture == NULL ) {
-				memcpy( &g_invalidSharedTextureInfo, &g_sharedTextureInfo, sizeof(g_invalidSharedTextureInfo) );
-
+			if ( g_sharedTextureInfo.hSharedTexture == NULL ) {
 				g_sharedTextureInfo.partnerId = sendingPartnerId;
-				g_sharedTextureInfo.hSharedTexture = sharedTextureHandle;
 				g_sharedTextureInfo.width = width;
 				g_sharedTextureInfo.height = height;
 				g_sharedTextureInfo.format = format;
 				g_sharedTextureInfo.usage = usage;
+				g_sharedTextureInfo.hSharedTexture = sharedTextureHandle;
 			}
-		}
-		catch (...) {}
+	//	}
+	//	catch (...) {}
 
-		ReleaseMutex( g_hTextureInfoMutex );
-	}
+	//	ReleaseMutex( g_hTextureInfoMutex );
+	//}
 }
 
 
 void TextureSharingStoppedCALLBACK( HANDLE wyphonPartnerHandle, unsigned __int32 sendingPartnerId, HANDLE sharedTextureHandle, unsigned __int32 width, unsigned __int32 height, DWORD format, DWORD usage, LPTSTR description, void * customData ) {
-	if ( WAIT_OBJECT_0 == WaitForSingleObject(g_hTextureInfoMutex, INFINITE ) ) {
-		try {
+	//if ( WAIT_OBJECT_0 == WaitForSingleObject(g_hTextureInfoMutex, INFINITE ) ) {
+	//	try {
 			//if the invalidTextureInfo has not been cleaned up, don't accept new textures
-			if ( g_invalidSharedTextureInfo.hSharedTexture == NULL ) {
-				g_invalidSharedTextureInfo.partnerId = sendingPartnerId;
-				g_invalidSharedTextureInfo.hSharedTexture = sharedTextureHandle;
-				g_invalidSharedTextureInfo.width = width;
-				g_invalidSharedTextureInfo.height = height;
-				g_invalidSharedTextureInfo.format = format;
-				g_invalidSharedTextureInfo.usage = usage;
+			if ( g_sharedTextureInfo.hSharedTexture == sharedTextureHandle ) {
+				g_sharedTextureInfoIsInvalid = true;
 			}
-		}
-		catch (...) {}
+	//	}
+	//	catch (...) {}
 
-		ReleaseMutex( g_hTextureInfoMutex );
-	}
+	//	ReleaseMutex( g_hTextureInfoMutex );
+	//}
 }
 
 
@@ -150,8 +143,8 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 	///////////////////
 
 	g_sharedTextureInfo.hSharedTexture = NULL;
-	g_invalidSharedTextureInfo.hSharedTexture = NULL;
-	g_hTextureInfoMutex = CreateMutex( NULL, FALSE, NULL );
+	g_sharedTextureInfoIsInvalid = false;
+	//g_hTextureInfoMutex = CreateMutex( NULL, FALSE, NULL );
 
 	//no callbacks since we only want to share textures, we're not interested in info of other partners
 	g_hWyphonPartner = CreateWyphonPartner( is64bit ? TEXT( "WyphonGL sender test 64 BIT" ) : TEXT( "WyphonGL sender test 32 BIT" )
@@ -176,29 +169,29 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 	HANDLE toWyphon_glTextureHandle = NULL;
 	PDIRECT3DTEXTURE9 toWyphon_d3d9texture;
 
-	//first create a DX9ex texture
-	HRESULT hr = CreateDX9ExTexture( windowWidth, windowHeight, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, & toWyphon_d3d9texture, & toWyphon_dxShareHandle );
 
-	if ( hr == S_OK  ) {
-		//then create an OpenGL texture that is pointing to that same DX9ex texture
+	HRESULT hr;
+
+	hr = CreateDX9ExTexture( windowWidth, windowHeight, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, & toWyphon_d3d9texture, & toWyphon_dxShareHandle );
+
+	if ( hr == S_OK ) { 
+		//create an OpenGL texture that is linked to a DX9ex texture, so it can be shared by Wyphon
 		hr = CreateLinkedGLTexture( windowWidth, windowHeight, D3DUSAGE_RENDERTARGET, D3DFMT_A8R8G8B8, toWyphon_dxShareHandle, toWyphon_glTextureName, toWyphon_glTextureHandle );
 		if ( hr == S_OK ) {
 			//then use Wyphon to share this texture (don't forget to fill hat texture after each render pass, by copying the screen buffer to it!)
 			ShareD3DTexture( g_hWyphonPartner, toWyphon_dxShareHandle, windowWidth, windowHeight, D3DFMT_A8R8G8B8, D3DUSAGE_RENDERTARGET, TEXT( "screen output" ) );
 		}
 		else {
-			GLuint FramebufferName = 0; //just a line to put a breakpoint on :)
-
+			bool done = true; //just a line to put a breakpoint on :)
 		}
 	}
+	//Check out http://www.glprogramming.com/red/chapter09.html for OpenGL 1.1 examples and tutorials.
 
-	//Check ou http://www.glprogramming.com/red/chapter09.html for OpenGL 1.1 examples and tutorials.
-
-	//this 
+	//this texture is the texture shared by someone else
 	HANDLE fromWyphon_dxShareHandle = NULL;
 	GLuint fromWyphon_glTextureName = NULL;
 	HANDLE fromWyphon_glTextureHandle = NULL;
-	PDIRECT3DTEXTURE9 fromWyphon_d3d9texture = NULL;
+	//PDIRECT3DTEXTURE9 fromWyphon_d3d9texture = NULL;
 
 
 	// program main loop
@@ -228,22 +221,25 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 			Sleep( 20 );
 
 
-			if ( WAIT_OBJECT_0 == WaitForSingleObject(g_hTextureInfoMutex, INFINITE ) ) {
-				try {
+			//if ( WAIT_OBJECT_0 == WaitForSingleObject( g_hTextureInfoMutex, INFINITE ) ) {
+			//	try {
 
 					if ( g_sharedTextureInfo.hSharedTexture != NULL ) {
-						if ( fromWyphon_d3d9texture == NULL ) {
+						if ( fromWyphon_glTextureHandle == NULL ) {
 							HRESULT hr;
 						
 							HANDLE h = g_sharedTextureInfo.hSharedTexture;
-							hr = CreateDX9ExTexture( g_sharedTextureInfo.width, g_sharedTextureInfo.height, g_sharedTextureInfo.usage, (D3DFORMAT) g_sharedTextureInfo.format, & fromWyphon_d3d9texture, & h );
-
-							if ( hr == S_OK  ) {
-								hr = CreateLinkedGLTexture( g_sharedTextureInfo.width, g_sharedTextureInfo.height, g_sharedTextureInfo.usage, (D3DFORMAT) g_sharedTextureInfo.format, h, fromWyphon_glTextureName, fromWyphon_glTextureHandle );
-								if ( hr == S_OK ) {
-									int ok = 1;
-								}
+							hr = CreateLinkedGLTexture( g_sharedTextureInfo.width, g_sharedTextureInfo.height, g_sharedTextureInfo.usage, (D3DFORMAT) g_sharedTextureInfo.format, h, fromWyphon_glTextureName, fromWyphon_glTextureHandle );
+							if ( hr == S_OK ) {
+								int ok = 1;
 							}
+						}
+						else if ( g_sharedTextureInfoIsInvalid ) {
+							fromWyphon_dxShareHandle = NULL;
+							fromWyphon_glTextureHandle = NULL;
+							fromWyphon_glTextureName = 0;
+							g_sharedTextureInfo.hSharedTexture = NULL;
+							g_sharedTextureInfoIsInvalid = false;
 						}
 					}
 
@@ -259,7 +255,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 					glColor3f( 0.0f, 0.0f, 1.0f ); glVertex2f( -0.87f, -0.5f );
 					glEnd();
 
-					//enable texturemapping
+					//enable texturemapping, ONLY IF WE HAVE A SHARED texture by another Wyphon partner
 					if ( fromWyphon_glTextureHandle != NULL ) {
 						glEnable(GL_TEXTURE_2D);
 						glBindTexture( GL_TEXTURE_2D, fromWyphon_glTextureName );
@@ -282,13 +278,13 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 
 
 					glPopMatrix();
-				}
-				catch(...) {
-					int error = 1;
-				}
+			//	}
+			//	catch(...) {
+			//		int error = 1;
+			//	}
 			
-				ReleaseMutex( g_hTextureInfoMutex );
-			}
+			//	ReleaseMutex( g_hTextureInfoMutex );
+			//}
 
 
 			//copy the backbuffer to the texture that this applicaion shares itself
@@ -299,9 +295,18 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 			glBindTexture( GL_TEXTURE_2D, toWyphon_glTextureName );
 			WyphonUtils::LockGLTexture( toWyphon_glTextureHandle );
 
+			//glMatrixMode( GL_TEXTURE_MATRIX );
+			//glPushMatrix();
+			//glMatrixMode( GL_TEXTURE );
+			//glLoadIdentity( );
+			//glScalef( 1, -2, 1 );
+
 			/// copy from framebuffer (here, the FBO!) to the bound texture
 			//glCopyTexImage2D( GL_TEXTURE_2D, 0, 0, 0, 0, windowWidth, windowHeight, 0 );
 			glCopyTexSubImage2D( GL_TEXTURE_2D, 0, 0, 0, 0, 0, windowWidth, windowHeight );
+
+			//glPopMatrix();
+			//glMatrixMode( GL_MODELVIEW );
 			glBindTexture( GL_TEXTURE_2D, 0 );
 			// unlock destination texture (but do not unbind it, we need it for drawing)
 			WyphonUtils::UnlockGLTexture( toWyphon_glTextureHandle );
@@ -332,7 +337,7 @@ int WINAPI WinMain(HINSTANCE hInstance, HINSTANCE hPrevInstance,
 		DestroyWyphonPartner( g_hWyphonPartner );
 	}
 
-	ReleaseMutex( g_hTextureInfoMutex );
+	//ReleaseMutex( g_hTextureInfoMutex );
 
 
 	// shutdown OpenGL
